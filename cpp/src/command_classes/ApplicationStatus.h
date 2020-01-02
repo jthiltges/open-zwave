@@ -29,6 +29,7 @@
 #define _ApplicationStatus_H
 
 #include "command_classes/CommandClass.h"
+#include "TimerThread.h"
 
 namespace OpenZWave
 {
@@ -39,16 +40,14 @@ namespace OpenZWave
 			/** \brief Implements COMMAND_CLASS_APPLICATION_STATUS (0x22), a Z-Wave device command class.
 			 * \ingroup CommandClass
 			 */
-			class ApplicationStatus: public CommandClass
+			class ApplicationStatus: public CommandClass, private Timer
 			{
 				public:
 					static CommandClass* Create(uint32 const _homeId, uint8 const _nodeId)
 					{
 						return new ApplicationStatus(_homeId, _nodeId);
 					}
-					virtual ~ApplicationStatus()
-					{
-					}
+					virtual ~ApplicationStatus();
 
 					static uint8 const StaticGetCommandClassId()
 					{
@@ -57,6 +56,15 @@ namespace OpenZWave
 					static string const StaticGetCommandClassName()
 					{
 						return "COMMAND_CLASS_APPLICATION_STATUS";
+					}
+
+					void QueueMsg(Driver::MsgQueueItem const& _item) override;
+
+					void SetBusy(int32 _ms_duration);
+					void ClearBusy();
+					bool IsBusy() const
+					{
+						return m_busy;
 					}
 
 					// From CommandClass
@@ -71,10 +79,12 @@ namespace OpenZWave
 					virtual bool HandleMsg(uint8 const* _data, uint32 const _length, uint32 const _instance = 1) override;
 
 				private:
-					ApplicationStatus(uint32 const _homeId, uint8 const _nodeId) :
-							CommandClass(_homeId, _nodeId)
-					{
-					}
+					ApplicationStatus(uint32 const _homeId, uint8 const _nodeId);
+
+					Internal::Platform::Mutex* m_mutex;				// Serialize access to the busy queue
+					list<Driver::MsgQueueItem> m_busyQueue;		// Messages waiting to be sent when the device is not busy
+					bool m_busy;	// Busy flag
+					Internal::Platform::TimeStamp m_busyTimeStamp;	// End of busy interval
 			};
 		} // namespace CC
 	} // namespace Internal

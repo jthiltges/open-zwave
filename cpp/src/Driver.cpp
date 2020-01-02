@@ -1308,134 +1308,7 @@ bool Driver::MoveMessagesToWakeUpQueue(uint8 const _targetNodeId, bool const _mo
 				// If we need to save the messages
 				if (_move)
 				{
-					// Move all messages for this node to the wake-up queue
-					m_sendMutex->Lock();
-
-					// See if we are working on a controller command
-					if (m_currentControllerCommand)
-					{
-						// Don't save controller message as it will be recreated
-						RemoveCurrentMsg();
-					}
-
-					// Then try the current message first
-					if (m_currentMsg)
-					{
-						if (_targetNodeId == m_currentMsg->GetTargetNodeId())
-						{
-							// This message is for the unresponsive node
-							// We do not move any "Wake Up No More Information"
-							// commands or NoOperations to the pending queue.
-							if (!m_currentMsg->IsWakeUpNoMoreInformationCommand() && !m_currentMsg->IsNoOperation())
-							{
-								Log::Write(LogLevel_Info, _targetNodeId, "Node not responding - moving message to Wake-Up queue: %s", m_currentMsg->GetAsString().c_str());
-								/* reset the sendAttempts */
-								m_currentMsg->SetSendAttempts(0);
-
-								MsgQueueItem item;
-								item.m_command = MsgQueueCmd_SendMsg;
-								item.m_msg = m_currentMsg;
-								wakeUp->QueueMsg(item);
-							}
-							else
-							{
-								delete m_currentMsg;
-							}
-
-							m_currentMsg = NULL;
-							m_expectedCallbackId = 0;
-							m_expectedCommandClassId = 0;
-							m_expectedNodeId = 0;
-							m_expectedReply = 0;
-							m_waitingForAck = false;
-						}
-					}
-
-					// Now the message queues
-					for (int i = 0; i < MsgQueue_Count; ++i)
-					{
-						list<MsgQueueItem>::iterator it = m_msgQueue[i].begin();
-						while (it != m_msgQueue[i].end())
-						{
-							bool remove = false;
-							MsgQueueItem const& item = *it;
-							if (MsgQueueCmd_SendMsg == item.m_command)
-							{
-								if (_targetNodeId == item.m_msg->GetTargetNodeId())
-								{
-									// This message is for the unresponsive node
-									// We do not move any "Wake Up No More Information"
-									// commands or NoOperations to the pending queue.
-									if (!item.m_msg->IsWakeUpNoMoreInformationCommand() && !item.m_msg->IsNoOperation())
-									{
-										Log::Write(LogLevel_Info, item.m_msg->GetTargetNodeId(), "Node not responding - moving message to Wake-Up queue: %s", item.m_msg->GetAsString().c_str());
-										/* reset any SendAttempts */
-										item.m_msg->SetSendAttempts(0);
-										wakeUp->QueueMsg(item);
-									}
-									else
-									{
-										delete item.m_msg;
-									}
-									remove = true;
-								}
-							}
-							if (MsgQueueCmd_QueryStageComplete == item.m_command)
-							{
-								if (_targetNodeId == item.m_nodeId)
-								{
-									Log::Write(LogLevel_Info, _targetNodeId, "Node not responding - moving QueryStageComplete command to Wake-Up queue");
-
-									wakeUp->QueueMsg(item);
-									remove = true;
-								}
-							}
-							if (MsgQueueCmd_Controller == item.m_command)
-							{
-								if (_targetNodeId == item.m_cci->m_controllerCommandNode)
-								{
-									Log::Write(LogLevel_Info, _targetNodeId, "Node not responding - moving controller command to Wake-Up queue: %s", c_controllerCommandNames[item.m_cci->m_controllerCommand]);
-
-									wakeUp->QueueMsg(item);
-									remove = true;
-								}
-							}
-
-							if (remove)
-							{
-								it = m_msgQueue[i].erase(it);
-							}
-							else
-							{
-								++it;
-							}
-						}
-
-						// If the queue is now empty, we need to clear its event
-						if (m_msgQueue[i].empty())
-						{
-							m_queueEvent[i]->Reset();
-						}
-					}
-
-					if (m_currentControllerCommand)
-					{
-						// Put command back on queue so it will be cleaned up
-						UpdateControllerState(ControllerState_Sleeping);
-						MsgQueueItem item;
-						item.m_command = MsgQueueCmd_Controller;
-						item.m_cci = new ControllerCommandItem(*m_currentControllerCommand);
-						m_currentControllerCommand = item.m_cci;
-						m_msgQueue[MsgQueue_Controller].push_back(item);
-						m_queueEvent[MsgQueue_Controller]->Set();
-					}
-
-					m_sendMutex->Unlock();
-
-					CheckCompletedNodeQueries();
-
-					// Move completed successfully
-					return true;
+					return MoveMessagesToCcQueue(_targetNodeId, wakeUp);
 				}
 			}
 		}
@@ -1443,6 +1316,158 @@ bool Driver::MoveMessagesToWakeUpQueue(uint8 const _targetNodeId, bool const _mo
 
 	// Failed to move messages
 	return false;
+}
+
+//-----------------------------------------------------------------------------
+// <Driver::MoveMessagesToBusyQueue>
+// Move messages for a busy device to its busy queue
+//-----------------------------------------------------------------------------
+bool Driver::MoveMessagesToBusyQueue(uint8 const _targetNodeId)
+{
+	if (Node* node = GetNodeUnsafe(_targetNodeId))
+	{
+		if (Internal::CC::ApplicationStatus* appStatus = static_cast<Internal::CC::ApplicationStatus*>(node->GetCommandClass(Internal::CC::ApplicationStatus::StaticGetCommandClassId())))
+		{
+			return MoveMessagesToCcQueue(_targetNodeId, appStatus);
+		}
+	}
+	return false;
+}
+
+//-----------------------------------------------------------------------------
+// <Driver::MoveMessagesToCcQueue>
+// Move messages for a device to a command class queue
+//-----------------------------------------------------------------------------
+bool Driver::MoveMessagesToCcQueue(uint8 const _targetNodeId, Internal::CC::CommandClass *cc)
+{
+		// Move all messages for this node to the wake-up queue
+		m_sendMutex->Lock();
+
+		// See if we are working on a controller command
+		if (m_currentControllerCommand)
+		{
+			// Don't save controller message as it will be recreated
+			RemoveCurrentMsg();
+		}
+
+		// Then try the current message first
+		if (m_currentMsg)
+		{
+			if (_targetNodeId == m_currentMsg->GetTargetNodeId())
+			{
+				// This message is for the unresponsive node
+				// We do not move any "Wake Up No More Information"
+				// commands or NoOperations to the pending queue.
+				if (!m_currentMsg->IsWakeUpNoMoreInformationCommand() && !m_currentMsg->IsNoOperation())
+				{
+					Log::Write(LogLevel_Info, _targetNodeId, "Node not responding or busy - moving message to command class queue: %s", m_currentMsg->GetAsString().c_str());
+					/* reset the sendAttempts */
+					m_currentMsg->SetSendAttempts(0);
+
+					MsgQueueItem item;
+					item.m_command = MsgQueueCmd_SendMsg;
+					item.m_msg = m_currentMsg;
+					cc->QueueMsg(item);
+				}
+				else
+				{
+					delete m_currentMsg;
+				}
+
+				m_currentMsg = NULL;
+				m_expectedCallbackId = 0;
+				m_expectedCommandClassId = 0;
+				m_expectedNodeId = 0;
+				m_expectedReply = 0;
+				m_waitingForAck = false;
+			}
+		}
+
+		// Now the message queues
+		for (int i = 0; i < MsgQueue_Count; ++i)
+		{
+			list<MsgQueueItem>::iterator it = m_msgQueue[i].begin();
+			while (it != m_msgQueue[i].end())
+			{
+				bool remove = false;
+				MsgQueueItem const& item = *it;
+				if (MsgQueueCmd_SendMsg == item.m_command)
+				{
+					if (_targetNodeId == item.m_msg->GetTargetNodeId())
+					{
+						// This message is for the unresponsive node
+						// We do not move any "Wake Up No More Information"
+						// commands or NoOperations to the pending queue.
+						if (!item.m_msg->IsWakeUpNoMoreInformationCommand() && !item.m_msg->IsNoOperation())
+						{
+							Log::Write(LogLevel_Info, item.m_msg->GetTargetNodeId(), "Node not responding or busy - moving message to command class queue: %s", item.m_msg->GetAsString().c_str());
+							/* reset any SendAttempts */
+							item.m_msg->SetSendAttempts(0);
+							cc->QueueMsg(item);
+						}
+						else
+						{
+							delete item.m_msg;
+						}
+						remove = true;
+					}
+				}
+				if (MsgQueueCmd_QueryStageComplete == item.m_command)
+				{
+					if (_targetNodeId == item.m_nodeId)
+					{
+						Log::Write(LogLevel_Info, _targetNodeId, "Node not responding or busy - moving QueryStageComplete command to command class queue");
+
+						cc->QueueMsg(item);
+						remove = true;
+					}
+				}
+				if (MsgQueueCmd_Controller == item.m_command)
+				{
+					if (_targetNodeId == item.m_cci->m_controllerCommandNode)
+					{
+						Log::Write(LogLevel_Info, _targetNodeId, "Node not responding or busy - moving controller command to command class queue: %s", c_controllerCommandNames[item.m_cci->m_controllerCommand]);
+
+						cc->QueueMsg(item);
+						remove = true;
+					}
+				}
+
+				if (remove)
+				{
+					it = m_msgQueue[i].erase(it);
+				}
+				else
+				{
+					++it;
+				}
+			}
+
+			// If the queue is now empty, we need to clear its event
+			if (m_msgQueue[i].empty())
+			{
+				m_queueEvent[i]->Reset();
+			}
+		}
+
+		if (m_currentControllerCommand)
+		{
+			// Put command back on queue so it will be cleaned up
+			UpdateControllerState(ControllerState_Sleeping);
+			MsgQueueItem item;
+			item.m_command = MsgQueueCmd_Controller;
+			item.m_cci = new ControllerCommandItem(*m_currentControllerCommand);
+			m_currentControllerCommand = item.m_cci;
+			m_msgQueue[MsgQueue_Controller].push_back(item);
+			m_queueEvent[MsgQueue_Controller]->Set();
+		}
+
+		m_sendMutex->Unlock();
+
+		CheckCompletedNodeQueries();
+
+		// Move completed successfully
+		return true;
 }
 
 //-----------------------------------------------------------------------------

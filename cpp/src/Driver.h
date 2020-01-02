@@ -699,7 +699,9 @@ namespace OpenZWave
 			bool WriteNextMsg(MsgQueue const _queue);							// Extracts the first message from the queue, and makes it the current one.
 			bool WriteMsg(string const &str);									// Sends the current message to the Z-Wave network
 			void RemoveCurrentMsg();											// Deletes the current message and cleans up the callback etc states
+			bool MoveMessagesToCcQueue(uint8 const _targetNodeId, Internal::CC::CommandClass *cc);	// Move messages for a node to a command class queue
 			bool MoveMessagesToWakeUpQueue(uint8 const _targetNodeId, bool const _move);		// If a node does not respond, and is of a type that can sleep, this method is used to move all its pending messages to another queue ready for when it wakes up next.
+			bool MoveMessagesToBusyQueue(uint8 const _targetNodeId);		// If a node responds with AppState busy, this method is used to move all its pending messages to another queue ready for when it is ready.
 			bool HandleErrorResponse(uint8 const _error, uint8 const _nodeId, char const* _funcStr, bool _sleepCheck = false);									    // Handle data errors and process consistently. If message is moved to wake-up queue, return true.
 			bool IsExpectedReply(uint8 const _nodeId);						// Determine if reply message is the one we are expecting
 			void SendQueryStageComplete(uint8 const _nodeId, Node::QueryStage const _stage);

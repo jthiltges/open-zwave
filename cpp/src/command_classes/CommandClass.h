@@ -90,6 +90,9 @@ namespace OpenZWave
 					void SetCommandClassLabel(string label);
 					virtual bool HandleMsg(uint8 const* _data, uint32 const _length, uint32 const _instance = 1) = 0;
 					virtual bool HandleIncomingMsg(uint8 const* _data, uint32 const _length, uint32 const _instance = 1);
+					virtual void QueueMsg(Driver::MsgQueueItem const& _item)
+					{
+					}
 					virtual bool SetValue(Internal::VC::Value const& _value)
 					{
 						return false;

@@ -67,7 +67,7 @@ namespace OpenZWave
 					}
 
 					void Init();	// Starts the process of requesting node state from a sleeping device.
-					void QueueMsg(Driver::MsgQueueItem const& _item);
+					void QueueMsg(Driver::MsgQueueItem const& _item) override;
 
 					/** \brief Send all pending messages followed by a no more information message. */
 					void SendPending();
