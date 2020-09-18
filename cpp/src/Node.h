@@ -911,6 +911,23 @@ namespace OpenZWave
 			void WriteMetaDataXML(TiXmlElement*);
 			map<MetaDataFields, string> m_metadata;
 			map<uint32_t, ChangeLogEntry> m_changeLog;
+
+			//-----------------------------------------------------------------------------
+			//	Queued messages for devices not listening (sleeping or busy)
+			//-----------------------------------------------------------------------------
+
+		public:
+			void SetListening(const bool _state);
+			bool IsListening() const
+			{
+				return m_listening;
+			}
+			void QueueMsg(Driver::MsgQueueItem const& _item);
+
+		private:
+			bool m_listening;	// Is node OK to receive messages?
+			Internal::Platform::Mutex* m_msgQueueMutex;				// Serialize access to the message queue
+			list<Driver::MsgQueueItem> m_msgQueue;		// Messages waiting to be sent when the device is ready
 	};
 
 } //namespace OpenZWave

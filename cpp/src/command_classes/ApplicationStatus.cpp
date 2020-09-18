@@ -210,7 +210,7 @@ namespace OpenZWave
 				if (_item.m_command == Driver::MsgQueueCmd_SendMsg)
 					_item.m_msg->SetSendAttempts(0);
 
-				m_busyQueue.push_back(_item);
+				m_msgQueue.push_back(_item);
 				m_mutex->Unlock();
 			}
 

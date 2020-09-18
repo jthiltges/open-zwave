@@ -4045,3 +4045,59 @@ void Node::WriteMetaDataXML(TiXmlElement *mdElement)
 		mdElement->LinkEndChild(cl);
 	}
 }
+
+void Node::SetListening(const bool _state)
+{
+	// If no state change, return
+	if (_state == m_listening) { return; }
+
+	if (_state) {
+		// Node is now listening
+		// Send pending messages
+	} else {
+		// Node is not listening
+		// Move pending messages to node queue
+		GetDriver()->MoveMessagesToNodeQueue(GetNodeId());
+	}
+	// Set new state
+	m_listening = _state;
+}
+
+void Node::QueueMsg(Driver::MsgQueueItem const& _item)
+{
+	m_msgQueueMutex->Lock();
+
+	// See if there is already a copy of this message in the queue.  If so,
+	// we delete it.  This is to prevent duplicates building up if the
+	// device does not wake up very often.  Deleting the original and
+	// adding the copy to the end avoids problems with the order of
+	// commands such as on and off.
+	list<Driver::MsgQueueItem>::iterator it = m_msgQueue.begin();
+	while (it != m_msgQueue.end())
+	{
+		Driver::MsgQueueItem const& item = *it;
+		if (item == _item)
+		{
+			// Duplicate found
+			if (Driver::MsgQueueCmd_SendMsg == item.m_command)
+			{
+				delete item.m_msg;
+			}
+			else if (Driver::MsgQueueCmd_Controller == item.m_command)
+			{
+				delete item.m_cci;
+			}
+			m_msgQueue.erase(it++);
+		}
+		else
+		{
+			++it;
+		}
+	}
+	/* make sure the SendAttempts is reset to 0 */
+	if (_item.m_command == Driver::MsgQueueCmd_SendMsg)
+		_item.m_msg->SetSendAttempts(0);
+
+	m_msgQueue.push_back(_item);
+	m_msgQueueMutex->Unlock();
+}
